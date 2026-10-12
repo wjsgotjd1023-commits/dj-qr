@@ -28,7 +28,7 @@
   .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
   .start{position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;background:#0B0F18}
   .start div{display:grid;gap:14px;max-width:320px}
-  .start p{margin:0;line-height:1.6;opacity:.85;font-size:15px}
+  .start p{margin:0;line-height:1.6;opacity:.85;font-size:15px;white-space:pre-line}
   .start .go{background:#2B4ACB;font-size:17px;padding:15px 22px;border-radius:14px}
   [hidden]{display:none!important}
 </style>
@@ -53,7 +53,7 @@
   // 앱 주소는 구글 Apps Script 웹앱 주소만 받아요 (다른 곳으로 보내지 않게).
   var P=new URLSearchParams(location.search);
   var APP=P.get('app')||'';
-  if(!/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/.test(APP)) APP='';
+  if(!/^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/.test(APP)) APP='';
   var RE=new RegExp('^[0-9]{2}(0[1-9]|1[0-2])[A-Z]{2,5}[0-9]{2,5}$'); // 장비 스티커 번호 모양 (예: 2404CMO002)
   var $=function(id){return document.getElementById(id);};
   var v=$('v'), stream=null, bd=null, busy=false, sent=false, lastBad='', badAt=0, timer=null;
@@ -74,11 +74,13 @@
     go(id);
   }
   function go(id){
-    if(!APP){ msg(id+' — 앱 주소를 몰라서 넘어갈 수 없어요. 앱에서 QR 찍기를 눌러 이 화면을 열어 주세요.','bad'); return; }
+    if(!APP){
+      if(!id&&history.length>1){ history.back(); return; }
+      showStart((id?id+' 를 읽었지만 ':'')+'앱 주소를 몰라서 넘어갈 수 없어요. 장비 현황 앱에서 "QR 찍기 (자동 인식)"을 눌러 이 화면을 열어 주세요.',false); return; }
     location.replace(APP+(id?'?qr='+encodeURIComponent(id):''));
   }
   function back(){
-    stop();
+    stop(); $('back2').textContent='돌아가는 중…';
     var op=null; try{ op=window.opener; }catch(e){}
     if(op&&!op.closed){ window.close(); setTimeout(function(){ go(''); },300); } else go('');
   }
@@ -133,13 +135,22 @@
         $('torch').onclick=function(){ on=!on; tr.applyConstraints({advanced:[{torch:on}]}).catch(function(){}); $('torch').textContent=on?'손전등 끄기':'손전등 켜기'; }; } }catch(e){}
       dec.then(tick,function(){ msg('QR 읽는 도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.','bad'); });
     }).catch(function(e){
-      showStart(e&&e.name==='NotAllowedError'?'카메라 사용이 막혀 있어요. 주소창 옆 설정(자물쇠·aA)에서 카메라를 "허용"으로 바꾼 뒤 다시 눌러 주세요.':'카메라를 켤 수 없어요. 다시 눌러 주세요.',true);
+      var n=(e&&e.name)||'오류', ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
+      var how=ios?'아이폰: 설정 앱 → Safari → 카메라 → "허용" (또는 주소창의 aA → 웹 사이트 설정 → 카메라 → 허용)':
+                  '안드로이드 크롬: 주소창 왼쪽 아이콘 → 권한(사이트 설정) → 카메라 → "허용"';
+      if(n==='NotAllowedError'||n==='SecurityError') showStart('카메라 사용이 막혀 있어요.\n'+how+'\n바꾼 뒤 "카메라 켜기"를 눌러 주세요.',true,n);
+      else if(n==='NotFoundError'||n==='OverconstrainedError') showStart('카메라를 찾지 못했어요. 핸드폰에서 열어 주세요.',true,n);
+      else if(n==='NotReadableError') showStart('다른 앱이 카메라를 쓰고 있어요. 카메라 앱을 닫고 다시 눌러 주세요.',true,n);
+      else showStart('카메라를 켤 수 없어요. 다시 눌러 주세요.',true,n);
     });
   }
-  function showStart(t,canRetry){ $('start-t').textContent=t; $('start-b').hidden=!canRetry; $('start').hidden=false; }
-  $('start-b').onclick=start;
+  function showStart(t,canRetry,code){ $('start-t').textContent=t+(code?'\n(이유: '+code+')':''); $('start-b').hidden=!canRetry; $('start').hidden=false; }
+  // 카카오톡·네이버·인스타 등 앱 안의 브라우저는 카메라를 막는 경우가 많음
+  var inApp=/KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent);
+  $('start-b').onclick=function(){ $('start-t').textContent='카메라를 켜는 중…'; start(); };
   document.addEventListener('visibilitychange',function(){ if(document.hidden) stop(); else if(!sent&&!stream) start(); });
-  start();
+  if(inApp) showStart('지금은 카카오톡·네이버 같은 앱 안의 브라우저로 열려 있어서 카메라를 쓸 수 없을 수 있어요.\n오른쪽 위 메뉴(⋮ 또는 공유)에서 "다른 브라우저로 열기"(크롬·사파리)를 눌러 주세요.',true);
+  else start();
 })();
 </script>
 </body>

@@ -41,13 +41,23 @@
   .done:disabled{opacity:.45}
   .flash{position:fixed;inset:0;background:rgba(61,220,151,.28);pointer-events:none;opacity:0;transition:opacity .25s}
   .flash.on{opacity:1;transition:none}
+  .hit{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%) scale(.9);background:rgba(16,120,80,.92);color:#fff;border-radius:22px;padding:18px 26px;text-align:center;pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;min-width:220px}
+  .hit.on{opacity:1;transform:translate(-50%,-50%) scale(1);transition:none}
+  .hit i{display:block;font-style:normal;font-size:46px;line-height:1;font-weight:800}
+  .hit b{display:block;font-size:20px;letter-spacing:.03em;margin-top:6px}
+  .hit small{display:block;font-size:14px;opacity:.9;margin-top:2px}
+  .snd{background:rgba(255,255,255,.16)} .snd.on{background:rgba(61,220,151,.35)}
+  .topr{display:flex;gap:6px;flex:none}
+  .topr button{white-space:nowrap;padding:8px 12px;font-size:13px}
+  .top>div:first-child{min-width:0}
 </style>
 </head>
 <body>
 <video id="v" playsinline muted autoplay></video>
 <div class="shade"><div class="frame" id="frame"><i></i><i></i><i></i><i></i></div></div>
-<div class="top"><div><b>장비 QR 찍기</b><small>네모 안에 스티커 QR을 비추면 자동으로 읽어요</small></div><button id="back" type="button">앱으로</button></div>
+<div class="top"><div><b>장비 QR 찍기</b><small>네모 안에 스티커 QR을 비추면 자동으로 읽어요</small></div><div class="topr"><button id="snd" class="snd" type="button">🔇 소리 켜기</button><button id="back" type="button">앱으로</button></div></div>
 <div class="flash" id="flash"></div>
+<div class="hit" id="hit"><i>✓</i><b id="hit-id"></b><small id="hit-n"></small></div>
 <div class="bottom">
   <div class="msg" id="msg">카메라를 켜는 중…</div>
   <div class="multi" id="multi" hidden>
@@ -83,14 +93,14 @@
   // 찾은 번호를 앱으로 보냄: 앱이 연 창이면 앱에 바로 전달하고 닫기, 아니면 앱 주소로 이동
   function sendToApp(id){
     sent=true; stop();
-    try{ if(navigator.vibrate) navigator.vibrate(70); }catch(e){}
+    beep(id,'앱으로 넘어가요…');
     msg(id+' 확인! 앱으로 넘어가요…','ok');
     var op=null; try{ op=window.opener; }catch(e){}
     if(op&&!op.closed){
       try{ op.postMessage({type:'djqr',id:id},'*'); }catch(e){ op=null; }
       if(op){ setTimeout(function(){ window.close(); setTimeout(function(){ go(id); },400); },150); return; }
     }
-    go(id);
+    setTimeout(function(){ go(id); },450); // 찍힌 표시를 잠깐 보여 준 뒤 앱으로
   }
   function go(id){
     if(!APP){
@@ -99,12 +109,25 @@
     location.replace(APP+(id?'?qr='+encodeURIComponent(id):'')+(MULTI?(id?'&':'?')+'m=1':''));
   }
   // ----- 여러 개 찍기 -----
-  var beepCtx=null;
-  function beep(){
-    try{ if(navigator.vibrate) navigator.vibrate(60); }catch(e){}
-    try{ beepCtx=beepCtx||new (window.AudioContext||window.webkitAudioContext)(); var o=beepCtx.createOscillator(), g=beepCtx.createGain();
-      o.frequency.value=1250; g.gain.value=0.08; o.connect(g); g.connect(beepCtx.destination); o.start(); o.stop(beepCtx.currentTime+0.09); }catch(e){}
-    var f=$('flash'); f.className='flash on'; setTimeout(function(){ f.className='flash'; },60);
+  // ----- 찍혔을 때 알림: 소리 + 진동 + 화면 가운데 큰 표시 -----
+  // 핸드폰은 화면을 한 번이라도 눌러야 소리·진동을 허락해요. 그래서 '소리 켜기'를 누르거나 화면을 아무 곳이나 한 번 누르면 켜져요.
+  var actx=null, sndOn=false;
+  function unlockSound(){
+    try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state!=='running') actx.resume(); }catch(e){}
+    if(!sndOn){ sndOn=true; $('snd').textContent='🔊 소리 켜짐'; $('snd').className='snd on'; tone(880,0.06,0.15); }
+  }
+  function tone(f,dur,vol){
+    try{ if(!actx||actx.state!=='running') return; var o=actx.createOscillator(), g=actx.createGain(), t=actx.currentTime;
+      o.type='square'; o.frequency.value=f; g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+      o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+dur+0.02); }catch(e){}
+  }
+  ['pointerdown','touchstart','click'].forEach(function(ev){ document.addEventListener(ev,unlockSound,{passive:true}); });
+  var hitT=null;
+  function beep(id,sub){
+    tone(1400,0.08,0.3); setTimeout(function(){ tone(1900,0.1,0.3); },90);   // 삐빅
+    try{ if(navigator.vibrate) navigator.vibrate([70,40,70]); }catch(e){}
+    var f=$('flash'); f.className='flash on'; setTimeout(function(){ f.className='flash'; },80);
+    if(id){ $('hit-id').textContent=id; $('hit-n').textContent=sub||''; var h=$('hit'); h.className='hit on'; clearTimeout(hitT); hitT=setTimeout(function(){ h.className='hit'; },900); }
   }
   function drawList(newId){
     $('cnt').textContent=LIST.length;
@@ -116,7 +139,7 @@
   function addMulti(id){
     if(LIST.indexOf(id)>=0){ if(id!==dupId||Date.now()-dupAt>2000){ dupId=id; dupAt=Date.now(); msg(id+' 은(는) 이미 찍었어요'); } return; }
     if(LIST.length>=200){ msg('한 번에 200개까지 찍을 수 있어요','bad'); return; }
-    LIST.push(id); beep(); drawList(id); msg(id+' 추가! 다음 QR을 비춰 주세요','ok');
+    LIST.push(id); beep(id, LIST.length+'개째 찍었어요'); drawList(id); msg(id+' 추가! 다음 QR을 비춰 주세요','ok');
     setTimeout(function(){ if(!sent) $('frame').className='frame'; },500);
   }
   if(MULTI){

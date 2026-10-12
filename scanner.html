@@ -31,14 +31,30 @@
   .start p{margin:0;line-height:1.6;opacity:.85;font-size:15px;white-space:pre-line}
   .start .go{background:#2B4ACB;font-size:17px;padding:15px 22px;border-radius:14px}
   [hidden]{display:none!important}
+  .multi{width:100%;max-width:460px;display:grid;gap:8px}
+  .cnt{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700}
+  .cnt b{font-size:22px;color:var(--ok)}
+  .ids{display:flex;flex-wrap:wrap;gap:6px;max-height:68px;overflow:hidden}
+  .ids span{background:rgba(255,255,255,.16);border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:700;letter-spacing:.02em}
+  .ids span.new{background:var(--ok);color:#06150F}
+  .done{background:#2B4ACB;font-size:16px;padding:14px;border-radius:14px;width:100%}
+  .done:disabled{opacity:.45}
+  .flash{position:fixed;inset:0;background:rgba(61,220,151,.28);pointer-events:none;opacity:0;transition:opacity .25s}
+  .flash.on{opacity:1;transition:none}
 </style>
 </head>
 <body>
 <video id="v" playsinline muted autoplay></video>
 <div class="shade"><div class="frame" id="frame"><i></i><i></i><i></i><i></i></div></div>
 <div class="top"><div><b>장비 QR 찍기</b><small>네모 안에 스티커 QR을 비추면 자동으로 읽어요</small></div><button id="back" type="button">앱으로</button></div>
+<div class="flash" id="flash"></div>
 <div class="bottom">
   <div class="msg" id="msg">카메라를 켜는 중…</div>
+  <div class="multi" id="multi" hidden>
+    <div class="cnt"><span>찍은 장비 <b id="cnt">0</b>개</span><button id="undo" type="button" hidden>마지막 것 빼기</button></div>
+    <div class="ids" id="ids"></div>
+    <button class="done" id="done" type="button" disabled>다 찍었어요 → 옮길 곳 고르기</button>
+  </div>
   <div class="row"><button id="torch" type="button" hidden>손전등 켜기</button></div>
 </div>
 <div class="start" id="start" hidden><div>
@@ -56,6 +72,9 @@
   if(!/^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/.test(APP)) APP='';
   var RE=new RegExp('^[0-9]{2}(0[1-9]|1[0-2])[A-Z]{2,5}[0-9]{2,5}$'); // 장비 스티커 번호 모양 (예: 2404CMO002)
   var $=function(id){return document.getElementById(id);};
+  // 여러 개 찍기 모드: ?m=1 (찍을 때마다 목록에 쌓고, '다 찍었어요'를 누르면 앱으로)
+  var MULTI=P.get('m')==='1', LIST=[];
+  String(P.get('have')||'').toUpperCase().split(',').forEach(function(x){ x=x.trim(); if(RE.test(x)&&LIST.indexOf(x)<0&&LIST.length<200) LIST.push(x); });
   var v=$('v'), stream=null, bd=null, busy=false, sent=false, lastBad='', badAt=0, timer=null;
 
   function msg(t,cls){ var m=$('msg'); m.textContent=t; m.className='msg'+(cls?' '+cls:''); $('frame').className='frame'+(cls?' '+cls:''); }
@@ -77,10 +96,39 @@
     if(!APP){
       if(!id&&history.length>1){ history.back(); return; }
       showStart((id?id+' 를 읽었지만 ':'')+'앱 주소를 몰라서 넘어갈 수 없어요. 장비 현황 앱에서 "QR 찍기 (자동 인식)"을 눌러 이 화면을 열어 주세요.',false); return; }
-    location.replace(APP+(id?'?qr='+encodeURIComponent(id):''));
+    location.replace(APP+(id?'?qr='+encodeURIComponent(id):'')+(MULTI?(id?'&':'?')+'m=1':''));
+  }
+  // ----- 여러 개 찍기 -----
+  var beepCtx=null;
+  function beep(){
+    try{ if(navigator.vibrate) navigator.vibrate(60); }catch(e){}
+    try{ beepCtx=beepCtx||new (window.AudioContext||window.webkitAudioContext)(); var o=beepCtx.createOscillator(), g=beepCtx.createGain();
+      o.frequency.value=1250; g.gain.value=0.08; o.connect(g); g.connect(beepCtx.destination); o.start(); o.stop(beepCtx.currentTime+0.09); }catch(e){}
+    var f=$('flash'); f.className='flash on'; setTimeout(function(){ f.className='flash'; },60);
+  }
+  function drawList(newId){
+    $('cnt').textContent=LIST.length;
+    $('ids').innerHTML=LIST.slice(-8).reverse().map(function(x){ return '<span'+(x===newId?' class="new"':'')+'>'+x+'</span>'; }).join('')+(LIST.length>8?'<span>외 '+(LIST.length-8)+'개</span>':'');
+    $('done').disabled=!LIST.length; $('done').textContent=LIST.length?'다 찍었어요 ('+LIST.length+'개) → 옮길 곳 고르기':'스티커 QR을 찍어 주세요';
+    $('undo').hidden=!LIST.length;
+  }
+  var dupAt=0, dupId='';
+  function addMulti(id){
+    if(LIST.indexOf(id)>=0){ if(id!==dupId||Date.now()-dupAt>2000){ dupId=id; dupAt=Date.now(); msg(id+' 은(는) 이미 찍었어요'); } return; }
+    if(LIST.length>=200){ msg('한 번에 200개까지 찍을 수 있어요','bad'); return; }
+    LIST.push(id); beep(); drawList(id); msg(id+' 추가! 다음 QR을 비춰 주세요','ok');
+    setTimeout(function(){ if(!sent) $('frame').className='frame'; },500);
+  }
+  if(MULTI){
+    $('multi').hidden=false; drawList();
+    document.querySelector('.top b').textContent='여러 개 찍기';
+    document.querySelector('.top small').textContent='QR을 하나씩 비추면 목록에 쌓여요';
+    $('done').onclick=function(){ if(!LIST.length) return; sent=true; stop(); msg(LIST.length+'개를 앱으로 보내는 중…','ok'); go(LIST.join(',')); };
+    $('undo').onclick=function(){ var x=LIST.pop(); drawList(); msg(x+' 을(를) 뺐어요'); };
   }
   function back(){
     stop(); $('back2').textContent='돌아가는 중…';
+    if(MULTI){ go(LIST.join(',')); return; } // 여러 개 모드: 찍어 둔 목록은 그대로 들고 돌아감
     var op=null; try{ op=window.opener; }catch(e){}
     if(op&&!op.closed){ window.close(); setTimeout(function(){ go(''); },300); } else go('');
   }
@@ -89,7 +137,7 @@
   function seen(text){
     if(sent) return;
     var id=norm(text);
-    if(RE.test(id)) return sendToApp(id);
+    if(RE.test(id)) return MULTI?addMulti(id):sendToApp(id);
     // 장비 스티커가 아닌 QR은 무시 (안내만 잠깐)
     if(id!==lastBad||Date.now()-badAt>2500){ lastBad=id; badAt=Date.now(); msg('장비 스티커 QR이 아니에요','bad');
       setTimeout(function(){ if(!sent&&Date.now()-badAt>=1900) msg('네모 안에 스티커 QR을 비춰 주세요'); },2000); }

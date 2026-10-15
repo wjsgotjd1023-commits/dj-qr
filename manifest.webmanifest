@@ -1,0 +1,13 @@
+{
+  "name": "장비현황",
+  "short_name": "장비현황",
+  "start_url": "./start.html?from=home",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#D9580A",
+  "theme_color": "#D9580A",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
